@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>FileTransfer</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+</head>
+
+<body>
+  <h2>Файлообменник на NodeJS от intNeo</h2>
+  <h3>Загрузите файл:</h3>
+  <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+    <input type="file" name="file" />
+    <button type="submit">Загрузить</button>
+  </form>
+  <div id="downloadInfo" style="display: none;">
+    <p><strong>Имя файла:</strong> <span id="filename"></span></p>
+    <p><strong>Дата загрузки:</strong> <span id="uploadDate"></span></p>
+    <p><strong>Ссылка для скачивания:</strong> <a id="downloadLink" href="" target="_blank">Скачать</a></p>
+  </div>
+  <p id="uploadStatus"></p>
+  <a href="https://www.flaticon.com/ru/free-icons/-" title="Поделиться значок иконки">Поделиться значок иконки от Vectors Tank - Flaticon</a>
+
+  <script>
+    document.getElementById('uploadForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const xhr = new XMLHttpRequest();
+      const uploadStatusElement = document.getElementById('uploadStatus');
+      xhr.open('POST', '/upload', true);
+      // Отслеживаем событие изменения состояния запроса
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            const data = JSON.parse(xhr.responseText);
+            updateFileInfo(data);
+          } else {
+            console.error('Ошибка загрузки:', xhr.statusText);
+          }
+        }
+      };
+      // Отслеживаем событие загрузки
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const loaded = e.loaded / 1024 / 1024; // Загружено в мегабайтах
+          const total = e.total / 1024 / 1024; // Всего в мегабайтах
+          const speed = loaded / (e.timeStamp / 1000); // Скорость в мб/с
+          uploadStatusElement.textContent = `Идет загрузка: ${Math.round((loaded / total) * 100)}%, ${speed.toFixed(2)} мб/с`;
+        }
+      });
+      // Функция для расчета скорости загрузки в мб/с
+      function calculateSpeed(loaded) {
+        const now = new Date().getTime();
+        const elapsed = (now - startTime) / 1000; // Прошедшее время в секундах
+        const speed = ((loaded - startBytes) / (1024 * 1024)) / elapsed; // Скорость в мб/с
+        return speed.toFixed(2);
+      }
+      // Отправляем запрос
+      xhr.send(formData);
+    });
+    // Функция для расчета скорости загрузки в мб/с
+    function calculateSpeed(loaded, timeStamp) {
+      const now = new Date().getTime();
+      const elapsed = (now - timeStamp) / 1000; // Прошедшее время в секундах
+      const speed = (loaded / (1024 * 1024)) / elapsed; // Скорость в мб/с
+      return speed.toFixed(2);
+    }
+
+    function updateFileInfo(data) {
+      const filenameElement = document.getElementById('filename');
+      const uploadDateElement = document.getElementById('uploadDate');
+      const downloadLinkElement = document.getElementById('downloadLink');
+      filenameElement.textContent = data.filename;
+      uploadDateElement.textContent = data.uploadDate;
+      downloadLinkElement.href = data.downloadLink;
+      downloadLinkElement.textContent = `Скачать ${data.filename}`;
+      // Показываем информацию о файле
+      document.getElementById('downloadInfo').style.display = 'block';
+    }
+  </script>
+</body>
+
+</html>
