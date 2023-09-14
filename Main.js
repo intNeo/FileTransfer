@@ -31,13 +31,33 @@ const upload = multer({ storage });
 
 app.use(express.static('public')); // Создайте публичную папку для доступа к файлам
 
+// Создаем поток вывода для записи в файл log.txt
+const logStream = fs.createWriteStream(path.join(__dirname, 'log.txt'), { flags: 'a' });
+
+process.on('uncaughtException', (error) => {
+  // Логирование ошибки в консоль и в файл
+  console.error('Необработанная ошибка:', error);
+  logStream.write(`Необработанная ошибка: ${error}\n`);
+
+  // Завершение процесса
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  // Логирование промисов, которые были отклонены без обработки
+  console.error('Необработанный промис:', promise, 'Причина:', reason);
+  logStream.write(`Необработанный промис: ${promise} Причина: ${reason}\n`);
+});
+
 // Middleware для логирования
 app.use((req, res, next) => {
   const clientAddress = req.connection.remoteAddress;
   const clientPort = req.connection.remotePort;
   const currentTime = new Date().toLocaleString();
+  const logMessage = `[${currentTime}] ${clientAddress}:${clientPort} ${req.method} ${req.url}`;
 
-  console.log(`${currentTime} ${clientAddress}:${clientPort} ${req.method} ${req.url}`);
+  console.log(logMessage); // Выводим в консоль
+  logStream.write(logMessage + '\n'); // Записываем в файл
   
   next();
 });
@@ -94,8 +114,11 @@ app.get('/download/:filename', (req, res) => {
 
 // Слушаем порт
 app.listen(port, () => {
-  console.log(`FileTransfer v.0.1`);
-  console.log(`Powered by intNeo and Open AI ChatGPT 3.5`);
-  console.log(`Большое спасибо за favicon Vectors Tank - Flaticon`);
-  console.log(`Сервер запущен на порту ${port}`);  
+  const nameproject = `FileTransfer v.0.2`;
+  const powered = `Powered by intNeo and Open AI ChatGPT 3.5`;
+  const description = `Большое спасибо за favicon Vectors Tank - Flaticon`;
+  const runport = `Сервер запущен на порту ${port}`;
+  const currentTime = new Date().toLocaleString();
+  console.log(nameproject + '\n' + powered + '\n' + description + `\n` + runport);
+  logStream.write(`==========[${currentTime}=[Сервер запущен]==========` + `\n`);
 });
