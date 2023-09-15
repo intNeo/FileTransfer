@@ -121,7 +121,7 @@ app.get('/download/:filename', (req, res) => {
 
 // Слушаем порт
 app.listen(port, () => {
-  const nameproject = `FileTransfer v.0.2`;
+  const nameproject = `FileTransfer v.0.3`;
   const powered = `Powered by intNeo and Open AI ChatGPT 3.5`;
   const description = `Большое спасибо за favicon Vectors Tank - Flaticon`;
   const runport = `Сервер запущен на порту ${port}`;
