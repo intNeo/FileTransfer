@@ -25,6 +25,16 @@
   <script>
     document.getElementById('uploadForm').addEventListener('submit', (event) => {
       event.preventDefault();
+	  const fileInput = document.querySelector('input[type="file"]');
+	  const selectedFile = fileInput.files[0];
+  
+	if (!selectedFile) {
+		alert('Выберите файл для загрузки.');
+		return; // Прерываем выполнение функции, если файл не выбран
+	}
+  
+  // Выводим имя выбранного файла в консоль
+  console.log('Имя загружаемого файла:', selectedFile.name);
       const formData = new FormData(event.target);
       const xhr = new XMLHttpRequest();
       const uploadStatusElement = document.getElementById('uploadStatus');

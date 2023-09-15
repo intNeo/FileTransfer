@@ -83,7 +83,14 @@ app.post('/upload', upload.single('file'), (req, res) => {
       downloadLink: downloadLink
     };
 
-    // Отправляем информацию о файле на клиентскую сторону
+    // Выводим имя загружаемого файла в консоль сервера
+    const infileconsole = `Имя файла: ` + file.originalname + ` UUID: ` + file.filename;
+	const infilelog = `Имя файла: ` + file.originalname + ` UUID: ` + file.filename + `\n`;
+	console.log(infileconsole);
+	logStream.write(infilelog);
+	
+	
+	// Отправляем информацию о файле на клиентскую сторону
     res.json(fileInfo);
   }
 });
