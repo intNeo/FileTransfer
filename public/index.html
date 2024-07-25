@@ -11,6 +11,7 @@
 <body>
   <h2>Файлообменник на NodeJS от intNeo</h2>
   <h3>Загрузите файл:</h3>
+  <button id="themeToggle">Темная</button>
   <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
     <input type="file" name="file" />
     <button type="submit">Загрузить</button>
@@ -21,10 +22,55 @@
     <p><strong>Ссылка для скачивания:</strong> <a id="downloadLink" href="" target="_blank">Скачать</a></p>
   </div>
   <p id="uploadStatus"></p>
-  <a href="https://www.flaticon.com/ru/free-icons/-" title="Поделиться значок иконки">Поделиться значок иконки от Vectors Tank - Flaticon</a>
+  <a id="shareLink" href="https://www.flaticon.com/ru/free-icons/-" title="Поделиться значок иконки">Поделиться значок иконки от Vectors Tank - Flaticon</a>
 
   <script>
-    document.getElementById('uploadForm').addEventListener('submit', (event) => {
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      updateThemeToggleText(theme);
+      updateShareLinkColor(theme);
+    }
+	
+	function updateThemeToggleText(theme) {
+      const themeToggle = document.getElementById('themeToggle');
+      themeToggle.textContent = theme === 'light' ? 'Темная' : 'Светлая';
+    }
+	
+	function updateShareLinkColor(theme) {
+      const shareLink = document.getElementById('shareLink');
+      shareLink.style.color = theme === 'light' ? 'black' : 'white';
+    }
+	
+	function toggleTheme() {
+      const currentTheme = localStorage.getItem('theme') || 'light';
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+	
+	function initTheme() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) {
+        setTheme(savedTheme);
+      } else {
+        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const initialTheme = prefersDarkScheme ? 'dark' : 'light';
+        setTheme(initialTheme);
+      }
+    }
+	
+	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      const userPreference = localStorage.getItem('theme');
+      if (!userPreference) {
+        setTheme(e.matches ? 'dark' : 'light');
+      }
+    });
+	
+	document.addEventListener('DOMContentLoaded', () => {
+      initTheme();
+      document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+    });
+	document.getElementById('uploadForm').addEventListener('submit', (event) => {
       event.preventDefault();
 	  const fileInput = document.querySelector('input[type="file"]');
 	  const selectedFile = fileInput.files[0];

@@ -15,13 +15,7 @@ const port = process.env.PORT || 1337;
 //Тестировал на самоподписанном сертификате
 const privateKey = fs.readFileSync('ssl/cert.key', 'utf8');
 const certificate = fs.readFileSync('ssl/cert.pem', 'utf8');
-
 const credentials = { key: privateKey, cert: certificate };
-
-// Генерация ключа и вектора инициализации (IV)
-const algorithm = 'aes-256-cbc';
-const key = crypto.randomBytes(32); // 32 байта для aes-256
-const iv = crypto.randomBytes(16); // 16 байт для IV
 
 // Установка хранилища для загруженных файлов
 const storage = multer.diskStorage({
@@ -54,9 +48,6 @@ process.on('uncaughtException', (error) => {
   // Логирование ошибки в консоль и в файл
   console.error('Необработанная ошибка:', error);
   logStream.write(`Необработанная ошибка: ${error}\n`);
-
-  // Завершение процесса
-  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -67,7 +58,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Middleware для логирования
 app.use((req, res, next) => {
-  const clientAddress = req.connection.remoteAddress;
+  const clientAddress = req.headers['x-real-ip'] || req.connection.remoteAddress; // Для nginx добавлено поддержка хедера
   const clientPort = req.connection.remotePort;
   const currentTime = new Date().toLocaleString();
   const logMessage = `[${currentTime}] ${clientAddress}:${clientPort} ${req.method} ${req.url}`;
@@ -89,18 +80,31 @@ app.post('/upload', upload.single('file'), (req, res) => {
   if (!file) {
     res.status(400).send('Ошибка загрузки файла.');
   } else {
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    const algorithm = 'aes-256-cbc';
+	const key = crypto.randomBytes(32); // 32 байта для aes-256
+	const iv = crypto.randomBytes(16); // 16 байт для IV
+	
+	const cipher = crypto.createCipheriv(algorithm, key, iv);
     const input = fs.createReadStream(file.path);
     const output = fs.createWriteStream(file.path + '.enc');
 
     input.pipe(cipher).pipe(output);
 
     output.on('finish', () => {
+	try {
       fs.unlinkSync(file.path); // Удаляем оригинальный файл после шифрования
       const downloadLink = `/download/${file.filename}.enc`;
-      const uploadDate = new Date().toLocaleString();
+      
+	  // Сохраняем ключ и IV в файле
+	  const keyIvData = {
+        key: key.toString('hex'),
+        iv: iv.toString('hex'),
+		originalname: file.originalname
+      };
 
-      // Отправляем JSON с информацией о файле
+      fs.writeFileSync(`${file.path}.keyiv`, JSON.stringify(keyIvData));
+	  
+	  const uploadDate = new Date().toLocaleString();
       const fileInfo = {
         filename: `${file.filename}.enc`,
         uploadDate: uploadDate,
@@ -108,13 +112,24 @@ app.post('/upload', upload.single('file'), (req, res) => {
       };
 
       // Выводим имя загружаемого файла в консоль сервера
-      const infileconsole = `Имя файла: ` + file.originalname + ` UUID: ` + file.filename;
-      const infilelog = `Имя файла: ` + file.originalname + ` UUID: ` + file.filename + `\n`;
+      const infileconsole = `Имя файла: ${file.originalname} UUID: ${file.filename}`;
+      const infilelog = `Имя файла: ${file.originalname} UUID: ${file.filename}\n`;
       console.log(infileconsole);
       logStream.write(infilelog);
 
       // Отправляем информацию о файле на клиентскую сторону
       res.json(fileInfo);
+	} catch (err) {
+		console.error('Ошибка при удалении исходного файла:', err);
+        logStream.write(`Ошибка при удалении исходного файла: ${err}\n`);
+        res.status(500).send('Ошибка при обработке файла.');
+	}
+    });
+	
+	output.on('error', (err) => {
+      console.error('Ошибка при шифровании файла:', err);
+      logStream.write(`Ошибка при шифровании файла: ${err}\n`);
+      res.status(500).send('Ошибка при шифровании файла.');
     });
   }
 });
@@ -123,24 +138,70 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'files', filename);
+  const keyIvPath = path.join(__dirname, 'files', `${path.basename(filename, '.enc')}.keyiv`);
 
   // Проверяем, существует ли файл
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath) || !fs.existsSync(keyIvPath)) {
     return res.status(404).send('Файл не найден.');
   }
+  
+  const keyIvData = JSON.parse(fs.readFileSync(keyIvPath, 'utf8'));
+  const key = Buffer.from(keyIvData.key, 'hex');
+  const iv = Buffer.from(keyIvData.iv, 'hex');
+  const algorithm = 'aes-256-cbc';
   
   const decipher = crypto.createDecipheriv(algorithm, key, iv);
   
   // Устанавливаем заголовки ответа для скачивания файла
-  res.setHeader('Content-Disposition', `attachment; filename="${filename.replace('.enc', '')}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${keyIvData.originalname}"`);
 
   // Создаем поток для чтения файла и отправляем его клиенту
   const input = fs.createReadStream(filePath);
   
-  input.pipe(decipher).pipe(res);
+  const decryptedFilePath = path.join(__dirname, 'files', `decrypted-${keyIvData.originalname}`);
+  const output = fs.createWriteStream(decryptedFilePath);
+  
+  input.pipe(decipher).pipe(output);
+  
+  output.on('finish', () => {
+	try {
+    const stat = fs.statSync(decryptedFilePath);
+    res.setHeader('Content-Length', stat.size);
+    const readStream = fs.createReadStream(decryptedFilePath);
+    readStream.pipe(res);
+
+    readStream.on('close', () => {
+	try {
+      fs.unlinkSync(decryptedFilePath);
+	} catch (err) {
+		console.error('Ошибка при удалении временного файла:', err);
+        logStream.write(`Ошибка при удалении временного файла: ${err}\n`);
+	}
+    });
+	
+	readStream.on('error', (err) => {
+        console.error('Ошибка при чтении файла для отправки:', err);
+        logStream.write(`Ошибка при чтении файла для отправки: ${err}\n`);
+        res.status(500).send('Ошибка при отправке файла.');
+      });
+	} catch (err) {
+	  console.error('Ошибка при обработке файла:', err);
+      logStream.write(`Ошибка при обработке файла: ${err}\n`);
+      res.status(500).send('Ошибка при обработке файла.');
+	}	
+  });
+  
+  output.on('error', (err) => {
+    console.error('Ошибка при расшифровании файла:', err);
+    logStream.write(`Ошибка при расшифровании файла: ${err}\n`);
+    res.status(500).send('Ошибка при расшифровании файла.');
+  });
 
   input.on('error', (err) => {
-    res.status(404).send('Файл не найден.');
+    console.error('Ошибка при чтении зашифрованного файла:', err);
+    logStream.write(`Ошибка при чтении зашифрованного файла: ${err}\n`);
+    res.status(500).send('Ошибка при чтении зашифрованного файла.');
+	//res.status(404).send('Файл не найден.');
   });
 });
 
@@ -149,7 +210,7 @@ const httpsServer = https.createServer(credentials, app);
 
 // Слушаем порт
 httpsServer.listen(port, () => {
-  const nameproject = `FileTransfer v.0.5`;
+  const nameproject = `FileTransfer v.0.5.1`;
   const powered = `Powered by intNeo and Open AI ChatGPT 4`;
   const description = `Большое спасибо за favicon Vectors Tank - Flaticon`;
   const runport = `Сервер запущен на порту ${port}`;
