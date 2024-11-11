@@ -68,6 +68,15 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req, res, next) => {
+  if (req.path.startsWith('/download') || req.path === '/upload' || req.path === '/') {
+    next();
+  } else {
+    res.status(403).send('Доступ запрещен.');
+  }
+});
+
+
 // Отправка HTML-страницы для загрузки файла
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -144,7 +153,7 @@ const httpsServer = https.createServer(credentials, app);
 
 // Слушаем порт
 httpsServer.listen(port, () => {
-  const nameproject = `FileTransfer v.0.5.2`;
+  const nameproject = `FileTransfer v.0.5.3`;
   const powered = `Powered by intNeo and Open AI ChatGPT 4`;
   const description = `Большое спасибо за favicon Vectors Tank - Flaticon`;
   const runport = `Сервер запущен на порту ${port}`;
@@ -153,8 +162,17 @@ httpsServer.listen(port, () => {
   logStream.write(`==========[${currentTime}=[Сервер запущен]==========` + `\n`);
 });
 
-// HTTP сервер для редиректа на HTTPS
+// HTTP сервер для редиректа на HTTPS с учетом порта
 http.createServer((req, res) => {
-  res.writeHead(301, { "Location": "https://" + req.headers['host'] + req.url });
+  let host = req.headers['host'];
+
+  // Если порт не 443, добавляем кастомный порт, иначе просто редиректим
+  if (port !== 443 && !host.includes(`:${port}`)) {
+    host += `:${port}`;
+  }
+
+  res.writeHead(301, { "Location": "https://" + host + req.url });
   res.end();
-}).listen(80);
+}).listen(80, () => {
+  console.log(`HTTP сервер слушает порт 80 для редиректов на HTTPS`);
+});
