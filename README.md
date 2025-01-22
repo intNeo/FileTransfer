@@ -40,6 +40,7 @@ sudo systemctl enable filetransfer.service --now
 sudo apt install nginx
 ```
 > Далее переместите файл filetransfer в директорию sites-available и далее сделайте символическую ссылку в sites-enabled:
+> Затем откройте его и поменяйте server_name с example.com на свой домен
 ```sh
 sudo mv filetransfer /etc/nginx/sites-available/
 sudo ln -s /etc/nginx/sites-available/filetransfer /etc/nginx/sites-enabled/
