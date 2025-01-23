@@ -3,20 +3,12 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid'); // Импорт функции для генерации UUID
-const https = require('https'); // Импорт модуля https
-const http = require('http'); // Для автоматического редиректа с HTTP на HTTPS
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const port = process.env.PORT || 1337;
+app.set('trust proxy', 1); // Доверяет первому прокси в цепочке
 
-// Чтение SSL сертификатов
-//Возможно и сертификаты от Let’s Encrypt
-//Тестировал на самоподписанном сертификате
-const privateKey = fs.readFileSync('ssl/cert.key', 'utf8');
-const certificate = fs.readFileSync('ssl/cert.pem', 'utf8');
-const credentials = { key: privateKey, cert: certificate };
-
-// Установка хранилища для загруженных файлов
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = './files';
@@ -26,10 +18,9 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // Генерируем случайное имя файла с использованием UUID
+	// Генерируем случайное имя файла с использованием UUID
     const randomFilename = uuidv4();
     const fileExtension = path.extname(file.originalname);
-
     // Склеиваем UUID и расширение файла
     const newFilename = `${randomFilename}${fileExtension}`;
     cb(null, newFilename);
@@ -37,37 +28,32 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
-
-app.use(express.static('public')); // Создайте публичную папку для доступа к файлам
+app.use(express.static('public'));
 
 // Создаем поток вывода для записи в файл log.txt
 const logStream = fs.createWriteStream(path.join(__dirname, 'log.txt'), { flags: 'a' });
 
-process.on('uncaughtException', (error) => {
-  // Логирование ошибки в консоль и в файл
-  console.error('Необработанная ошибка:', error);
-  logStream.write(`Необработанная ошибка: ${error}\n`);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  // Логирование промисов, которые были отклонены без обработки
-  console.error('Необработанный промис:', promise, 'Причина:', reason);
-  logStream.write(`Необработанный промис: ${promise} Причина: ${reason}\n`);
-});
-
 // Middleware для логирования
 app.use((req, res, next) => {
-  const clientAddress = req.headers['x-real-ip'] || req.connection.remoteAddress; // Для nginx добавлено поддержка хедера
+  const clientAddress = req.headers['x-real-ip'] || req.connection.remoteAddress;
   const clientPort = req.connection.remotePort;
   const currentTime = new Date().toLocaleString();
   const logMessage = `[${currentTime}] ${clientAddress}:${clientPort} ${req.method} ${req.url}`;
 
-  console.log(logMessage); // Выводим в консоль
-  logStream.write(logMessage + '\n'); // Записываем в файл
-  
+  console.log(logMessage);
+  logStream.write(logMessage + '\n');
   next();
 });
 
+// Ограничение частоты запросов
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 100, // Максимум 100 запросов с одного IP
+  message: 'Слишком много запросов с этого IP. Попробуйте позже.',
+});
+app.use(limiter);
+
+// Защита от неизвестных путей
 app.use((req, res, next) => {
   if (req.path.startsWith('/download') || req.path === '/upload' || req.path === '/') {
     next();
@@ -76,6 +62,40 @@ app.use((req, res, next) => {
   }
 });
 
+// Дополнительная защита
+// Ограничение размера запросов
+app.use(express.json({ limit: '10kb' })); // Ограничение на JSON тела
+app.use(express.urlencoded({ limit: '10kb', extended: true })); // Ограничение на URL-кодированные тела
+
+// Отклонение запросов с подозрительными параметрами
+app.use((req, res, next) => {
+  const forbiddenPatterns = [
+    /eval/i,
+    /phpunit/i,
+    /auto_prepend_file/i,
+    /allow_url_include/i,
+    /\.php$/i
+  ];
+  const query = req.url + JSON.stringify(req.body);
+
+  for (const pattern of forbiddenPatterns) {
+    if (pattern.test(query)) {
+      logStream.write(`Запрос заблокирован: ${req.url}\n`);
+      return res.status(400).send('Запрос заблокирован.');
+    }
+  }
+  next();
+});
+
+// Ограничение методов
+app.use((req, res, next) => {
+  const allowedMethods = ['GET', 'POST'];
+  if (!allowedMethods.includes(req.method)) {
+    logStream.write(`Метод заблокирован: ${req.method} ${req.url}\n`);
+    return res.status(405).send('Метод не разрешен.');
+  }
+  next();
+});
 
 // Отправка HTML-страницы для загрузки файла
 app.get('/', (req, res) => {
@@ -90,26 +110,22 @@ app.post('/upload', upload.single('file'), (req, res) => {
   } else {
     try {
       const downloadLink = `/download/${file.filename}`;
-      
       // Сохраняем оригинальное имя в файле
       const fileInfo = {
-        originalname: file.originalname
+        originalname: file.originalname,
       };
       fs.writeFileSync(`${file.path}.info`, JSON.stringify(fileInfo));
-      
       const uploadDate = new Date().toLocaleString();
       const responseFileInfo = {
         filename: file.filename,
         uploadDate: uploadDate,
-        downloadLink: downloadLink
+        downloadLink: downloadLink,
       };
-
       // Выводим имя загружаемого файла в консоль сервера
       const infileconsole = `Имя файла: ${file.originalname} UUID: ${file.filename}`;
       const infilelog = `Имя файла: ${file.originalname} UUID: ${file.filename}\n`;
       console.log(infileconsole);
       logStream.write(infilelog);
-
       // Отправляем информацию о файле на клиентскую сторону
       res.json(responseFileInfo);
     } catch (err) {
@@ -125,18 +141,15 @@ app.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'files', filename);
   const infoPath = path.join(__dirname, 'files', `${filename}.info`);
-
   // Проверяем, существует ли файл
   if (!fs.existsSync(filePath) || !fs.existsSync(infoPath)) {
     return res.status(404).send('Файл не найден.');
   }
 
   const fileInfo = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
-
   // Устанавливаем заголовки ответа для скачивания файла
   res.setHeader('Content-Disposition', `attachment; filename="${fileInfo.originalname}"`);
   res.setHeader('Content-Length', fs.statSync(filePath).size);
-
   // Создаем поток для чтения файла и отправляем его клиенту
   const readStream = fs.createReadStream(filePath);
   readStream.pipe(res);
@@ -148,31 +161,24 @@ app.get('/download/:filename', (req, res) => {
   });
 });
 
-// Создаем HTTPS сервер
-const httpsServer = https.createServer(credentials, app);
+// Обработка необработанных ошибок
+process.on('uncaughtException', (err) => {
+  console.error('Необработанная ошибка:', err);
+  logStream.write(`Необработанная ошибка: ${err}\n`);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Необработанное отклонение:', reason);
+  logStream.write(`Необработанное отклонение: ${reason}\n`);
+});
 
 // Слушаем порт
-httpsServer.listen(port, () => {
-  const nameproject = `FileTransfer v.0.5.3`;
+app.listen(port, () => {
+  const nameproject = `FileTransfer v.0.6`;
   const powered = `Powered by intNeo and Open AI ChatGPT 4`;
   const description = `Большое спасибо за favicon Vectors Tank - Flaticon`;
   const runport = `Сервер запущен на порту ${port}`;
   const currentTime = new Date().toLocaleString();
   console.log(nameproject + '\n' + powered + '\n' + description + `\n` + runport);
   logStream.write(`==========[${currentTime}=[Сервер запущен]==========` + `\n`);
-});
-
-// HTTP сервер для редиректа на HTTPS с учетом порта
-http.createServer((req, res) => {
-  let host = req.headers['host'];
-
-  // Если порт не 443, добавляем кастомный порт, иначе просто редиректим
-  if (port !== 443 && !host.includes(`:${port}`)) {
-    host += `:${port}`;
-  }
-
-  res.writeHead(301, { "Location": "https://" + host + req.url });
-  res.end();
-}).listen(80, () => {
-  console.log(`HTTP сервер слушает порт 80 для редиректов на HTTPS`);
 });
