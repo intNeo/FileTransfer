@@ -7,7 +7,7 @@
 cd /opt
 git clone https://github.com/intNeo/FileTransfer.git
 ```
-## Настройка обратного прокси на Nginx
+## Настройка обратного прокси на [Nginx](https://github.com/intNeo/FileTransfer/blob/main/Nginx.md)
 > Вам нужно установить пакет nginx для Linux:
 ```sh
 sudo apt install nginx
@@ -50,4 +50,4 @@ sudo mv filetransfer.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable filetransfer.service --now
 ```
-**Готово! Можно использовать. (p.s. по умолчанию максимальный размер загружаемого файла составляет 10 ГБ, вы можете его изменить в конфиге nginx, но не рекомендую, т.к. может работать нестабильно).**
+**Готово! Можно использовать. (p.s. по умолчанию максимальный размер загружаемого файла составляет 3 ГБ, вы можете его изменить в конфиге nginx, но не рекомендую, т.к. может работать нестабильно).**
